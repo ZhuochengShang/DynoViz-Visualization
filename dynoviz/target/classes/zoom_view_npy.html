@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<!--
+  Copyright 2022 University of California, Riverside
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<!-- Created with the help of ChatGPT-->
+<html>
+<head>
+  <title>Beast visualization</title>
+  <link rel='stylesheet' href='https://openlayers.org/en/v5.3.0/css/ol.css' type='text/css'>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+    .rgb-values {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      flex-direction: column;
+      background-color: rgba(255, 255, 255, 0.8);
+      padding: 10px;
+      border-radius: 10px;
+      width: 110px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+      position: relative;
+    }
+
+    .color-box {
+      display: flex;
+      align-items: center;
+      margin-bottom: 5px;
+      padding: 5px;
+      border-radius: 5px;
+    }
+
+    .color-box::before {
+      content: "";
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      margin-right: 10px;
+    }
+
+    #redBox::before {
+      background-color: red;
+    }
+
+    #greenBox::before {
+      background-color: green;
+    }
+
+    #blueBox::before {
+      background-color: blue;
+    }
+
+    .close-btn {
+      position: absolute;
+      top: 5px;
+      right: 10px;
+      padding: 1px 1px;
+      font-size: 12px;
+      font-weight: bold;
+      width: 12px;
+      height: 12px;
+      cursor: pointer;
+      border: 1px solid #333;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 12px;
+      background-color: rgba(255, 255, 255, 0.8);
+    }
+
+    .close-btn:hover {
+      background-color: #aaa;
+      color: #fff;
+    }
+
+    #getExtentsButton {
+      position: absolute;
+      top: 80px;
+      left: 10px;
+      z-index: 1000;
+      background: linear-gradient(135deg, #4CAF50, #2E8B57);
+      border-radius: 25px;
+      border: none;
+      color: white;
+      font-family: Arial, sans-serif;
+      font-size: 16px;
+      padding: 10px 20px;
+      box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.5);
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    #getExtentsButton:hover {
+      background: linear-gradient(135deg, #4CAF50, #3CB371);
+      transform: scale(1.05);
+    }
+
+    #getExtentsButton:active {
+      transform: scale(0.95);
+    }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+<!--<button  id="getExtentsButton" onclick="downloadVisibleRegion()">Download Data in Visible Area</button>-->
+<!--<div id="rgbValues" class="rgb-values">-->
+<!--  <span id="close-btn" class="close-btn">x</span>-->
+<!--  <div id="redBox" class="color-box"></div>-->
+<!--  <div id="greenBox" class="color-box"></div>-->
+<!--  <div id="blueBox" class="color-box"></div>-->
+<!--  <div id="colorPreview" class="color-box"></div>-->
+<!--</div>-->
+
+<div>
+  Set the layer style
+  <select id="style">
+    <option value="trueColor">True Color RGB</option>
+    <option value="ndvi">NDVI</option>
+    <option value="redColor">Red</option>
+    <option value="greenColor">Green</option>
+    <option value="blueColor">Blue</option>
+  </select>
+</div>
+
+<script src='https://cdn.rawgit.com/openlayers/openlayers.github.io/master/en/v5.3.0/build/ol.js'></script>
+<script src="https://cdn.jsdelivr.net/npm/@planet/ol-numpytiles@2.0.2/umd/NumpyLoader.js"></script>
+<script>
+
+  import DataTileSource from 'ol/source/DataTile.js';
+  import TileLayer from 'ol/layer/WebGLTile.js';
+
+  const baseUrl = 'http://localhost:8890'
+  const visualizeURL =  '/dynamic/raptor.cgi/'
+  const datasetPath = '#{DATASET_PATH}'
+  const workingDir = '#{WORKING_DIR}'
+  const centerX = '#{CENTER_X}'
+  const centerY= '#{CENTER_Y}'
+
+    function numpyTileLoader(z, x, y) {
+      const url = baseUrl+ workingDir  +'/'+ `tile-${z}-${x}-${y}.npy`
+      return fetch(url)
+              .then((r) => r.arrayBuffer())
+              .then((buffer) => NumpyLoader.fromArrayBuffer(buffer))
+              .then((numpyData) => {
+                // flatten the numpy data
+                const dataTile = new Float32Array(256 * 256 * 4);
+                const bandSize = 256 * 256;
+                for (let x = 0; x < 256; x++) {
+                  for (let y = 0; y < 256; y++) {
+                    const px = x + y * 256;
+                    dataTile[px * 4 + 0] = numpyData.data[y * 256 + x];
+                    dataTile[px * 4 + 1] = numpyData.data[bandSize + y * 256 + x];
+                    dataTile[px * 4 + 2] = numpyData.data[bandSize * 2 + y * 256 + x];
+                    dataTile[px * 4 + 3] = numpyData.data[bandSize * 3 + y * 256 + x];
+                    //dataTile[px * 5 + 4] =
+                    //numpyData.data[bandSize * 4 + y * 256 + x] > 0 ? 1.0 : 0;
+                  }
+                }
+                return dataTile;
+              });
+    }
+    function normalize(value) {
+      return ['/', value, max];
+    }
+
+    const red = normalize(['band', 3]);
+    const green = normalize(['band', 2]);
+    const blue = normalize(['band', 1]);
+    const nir = normalize(['band', 4]);
+
+    const trueColor = {
+      color: ['array', red, green, blue, 1],
+      gamma: 1.1,
+    };
+
+    const ndvi = {
+      color: [
+        'interpolate',
+        ['linear'],
+        ['/', ['-', nir, red], ['+', nir, red]],
+        // color ramp for NDVI values, ranging from -1 to 1
+        -0.2,
+        [191, 191, 191],
+        -0.1,
+        [219, 219, 219],
+        0,
+        [255, 255, 224],
+        0.025,
+        [255, 250, 204],
+        0.05,
+        [237, 232, 181],
+        0.075,
+        [222, 217, 156],
+        0.1,
+        [204, 199, 130],
+        0.125,
+        [189, 184, 107],
+        0.15,
+        [176, 194, 97],
+        0.175,
+        [163, 204, 89],
+        0.2,
+        [145, 191, 82],
+        0.25,
+        [128, 179, 71],
+        0.3,
+        [112, 163, 64],
+        0.35,
+        [97, 150, 54],
+        0.4,
+        [79, 138, 46],
+        0.45,
+        [64, 125, 36],
+        0.5,
+        [48, 110, 28],
+        0.55,
+        [33, 97, 18],
+        0.6,
+        [15, 84, 10],
+        0.65,
+        [0, 69, 0],
+      ],
+    };
+
+    const redColor = {
+      color: ['array', red, 0, 0, 1],
+      gamma: 1.1,
+    };
+
+    const greenColor = {
+      color: ['array', 0, green, 0, 1],
+      gamma: 1.1,
+    };
+
+    const blueColor = {
+      color: ['array', 0, 0, blue, 1],
+      gamma: 1.1,
+    };
+
+    const numpyLayer = new TileLayer({
+      style:
+      trueColor,
+      source: new DataTileSource({
+        loader: numpyTileLoader,
+        bandCount: 4,
+      }),
+    });
+    // Function to update the map view based on the URL hash
+    function updateMapView() {
+      const hash = window.location.hash.slice(1);
+      const [zoom, lon, lat] = hash.split('/').map(parseFloat);
+
+      const defaultZoom = 4;
+      const defaultCenter = [-117.3962, 33.9534]; // Riverside, CA [centerX.parseFloat,centerY.parseFloat]
+
+      map.getView().setCenter(ol.proj.fromLonLat([lon || defaultCenter[0], lat || defaultCenter[1]]));
+      map.getView().setZoom(zoom || defaultZoom);
+    }
+
+    var mercator = '#{MERCATOR}';
+    var mapLayers = [];
+    if (mercator) {
+      // Add an OSM base layer if Mercator projection is used
+      mapLayers.push(new ol.layer.Tile({source: new ol.source.OSM() }));
+    }
+    // Add the customized map layer
+    mapLayers.push(new ol.layer.Tile({
+      source: new ol.source.XYZ({
+        url: baseUrl + workingDir  +'/'+ '#{TILE_URL}',
+        tileSize: [#{TILE_WIDTH}, #{TILE_HEIGHT}],
+        attributions: '<a href="https://davinci.cs.ucr.edu">&copy;Beast</a>'
+      })
+    }));
+    const map = new ol.Map({
+      target: 'map',
+      layers: [numpyLayer],
+      view: new ol.View({
+        center: ol.proj.fromLonLat([-117.3962, 33.9534]), // Riverside, CA
+        zoom: 10,
+        minZoom: '#{MIN_ZOOM}',
+        maxZoom: '#{MAX_ZOOM}',
+      }),
+      //layers: mapLayers,
+    });
+
+    var overlay = new ol.Overlay({
+      element:  document.getElementById('rgbValues'),
+      offset: [10,0],
+      positioning: "top-left"
+    });
+
+    map.addOverlay(overlay)
+
+    // Listen for hash changes and update map view accordingly
+    window.addEventListener('hashchange', updateMapView);
+
+    function closePopup() {
+        document.getElementById('rgbValues').style.display = 'none';
+    }
+
+    document.getElementById('close-btn').addEventListener('click', function() {
+        closePopup();
+    });
+
+  const styles = {
+    trueColor,
+    ndvi,
+    redColor,
+    greenColor,
+    blueColor,
+  };
+
+  const styleSelector = document.getElementById('style');
+  function update() {
+    const style = styles[styleSelector.value];
+    numpyLayer.setStyle(style);
+  }
+  styleSelector.addEventListener('change', update);
+
+    // Initial map setup
+    updateMapView();
+  </script>
+</body>
+</html>

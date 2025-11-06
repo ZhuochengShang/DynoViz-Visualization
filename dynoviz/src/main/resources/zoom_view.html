@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<!--
+  Copyright 2022 University of California, Riverside
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<!-- Created with the help of ChatGPT-->
+<html>
+<head>
+  <title>Beast visualization</title>
+  <link rel='stylesheet' href='https://openlayers.org/en/v5.3.0/css/ol.css' type='text/css'>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+    .rgb-values {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      flex-direction: column;
+      background-color: rgba(255, 255, 255, 0.8);
+      padding: 10px;
+      border-radius: 10px;
+      width: 110px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+      position: relative;
+    }
+
+    .color-box {
+      display: flex;
+      align-items: center;
+      margin-bottom: 5px;
+      padding: 5px;
+      border-radius: 5px;
+    }
+
+    .color-box::before {
+      content: "";
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      margin-right: 10px;
+    }
+
+    #redBox::before {
+      background-color: red;
+    }
+
+    #greenBox::before {
+      background-color: green;
+    }
+
+    #blueBox::before {
+      background-color: blue;
+    }
+
+    .close-btn {
+      position: absolute;
+      top: 5px;
+      right: 10px;
+      padding: 1px 1px;
+      font-size: 12px;
+      font-weight: bold;
+      width: 12px;
+      height: 12px;
+      cursor: pointer;
+      border: 1px solid #333;
+      border-radius: 50%;
+      text-align: center;
+      line-height: 12px;
+      background-color: rgba(255, 255, 255, 0.8);
+    }
+
+    .close-btn:hover {
+      background-color: #aaa;
+      color: #fff;
+    }
+
+    #getExtentsButton {
+      position: absolute;
+      top: 80px;
+      left: 10px;
+      z-index: 1000;
+      background: linear-gradient(135deg, #4CAF50, #2E8B57);
+      border-radius: 25px;
+      border: none;
+      color: white;
+      font-family: Arial, sans-serif;
+      font-size: 16px;
+      padding: 10px 20px;
+      box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.5);
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    #getExtentsButton:hover {
+      background: linear-gradient(135deg, #4CAF50, #3CB371);
+      transform: scale(1.05);
+    }
+
+    #getExtentsButton:active {
+      transform: scale(0.95);
+    }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+<button  id="getExtentsButton" onclick="downloadVisibleRegion()">Download Data in Visible Area</button>
+<div id="rgbValues" class="rgb-values">
+  <span id="close-btn" class="close-btn">x</span>
+  <div id="redBox" class="color-box"></div>
+  <div id="greenBox" class="color-box"></div>
+  <div id="blueBox" class="color-box"></div>
+  <div id="colorPreview" class="color-box"></div>
+</div>
+
+<script src='https://cdn.rawgit.com/openlayers/openlayers.github.io/master/en/v5.3.0/build/ol.js'></script>
+<script src='https://cdn.polyfill.io/v2/polyfill.min.js?features=requestAnimationFrame,Element.prototype.classList,URL'></script>
+<script>
+    const baseUrl = 'http://localhost:8890'
+    const visualizeURL =  '/dynamic/raptor.cgi/'
+    const datasetPath = '#{DATASET_PATH}'
+    const workingDir = '#{WORKING_DIR}'
+    const centerX = '#{CENTER_X}'
+    const centerY= '#{CENTER_Y}'
+    // Function to update the map view based on the URL hash
+    function updateMapView() {
+      const hash = window.location.hash.slice(1);
+      const [zoom, lon, lat] = hash.split('/').map(parseFloat);
+
+      const defaultZoom = 4;
+      const defaultCenter = [centerX,centerY];//[-117.3962, 33.9534]; // Riverside, CA
+
+      map.getView().setCenter(ol.proj.fromLonLat([lon || defaultCenter[0], lat || defaultCenter[1]]));
+      map.getView().setZoom(zoom || defaultZoom);
+    }
+
+    var mercator = '#{MERCATOR}';
+    var mapLayers = [];
+    if (mercator) {
+      // Add an OSM base layer if Mercator projection is used
+      mapLayers.push(new ol.layer.Tile({source: new ol.source.OSM() }));
+    }
+    // Add the customized map layer
+    mapLayers.push(new ol.layer.Tile({
+      source: new ol.source.XYZ({
+        url: baseUrl+ visualizeURL + datasetPath + '/tile/' + workingDir  +'/'+ '#{TILE_URL}',
+        tileSize: [#{TILE_WIDTH}, #{TILE_HEIGHT}],
+        attributions: '<a href="https://davinci.cs.ucr.edu">&copy;Beast</a>'
+      })
+    }));
+    const map = new ol.Map({
+      target: 'map',
+      view: new ol.View({
+        center: ol.proj.fromLonLat([-117.3962, 33.9534]), // Riverside, CA
+        zoom: 10,
+        minZoom: '#{MIN_ZOOM}',
+        maxZoom: '#{MAX_ZOOM}',
+      }),
+      layers: mapLayers,
+    });
+
+    var overlay = new ol.Overlay({
+      element:  document.getElementById('rgbValues'),
+      offset: [10,0],
+      positioning: "top-left"
+    });
+
+    map.addOverlay(overlay)
+
+    function downloadVisibleRegion() {
+      var view = map.getView();
+      var extent = view.calculateExtent(map.getSize());
+      // Extract individual values from the extent array
+      var minx = extent[0];
+      var miny = extent[1];
+      var maxx = extent[2];
+      var maxy = extent[3];
+      // Log top left and bottom right coordinates
+      console.log('Top Left (EPSG:3857):', [minx, maxy]);
+      console.log('Bottom Right (EPSG:3857):', [maxx, miny]);
+      console.log('View Extents (EPSG:3857):', [minx, maxy, maxx, miny]);
+      var apiUrl = baseUrl + "/dynamic/raptor.cgi/dowloadsubset/"+datasetPath+"/" + minx + "/" + maxy + "/" + maxx + "/" + miny;
+
+      fetch(apiUrl)
+          .then(response => {
+            if (!response.ok) {
+              throw new Error('Network response was not ok');
+            }
+            return response.blob();
+          })
+          .then(blob => {
+            var link = document.createElement('a');
+            link.href = window.URL.createObjectURL(blob);
+            link.download = 'downloaded_file.zip';
+            // Append the link to the document and trigger the download
+            document.body.appendChild(link);
+            link.click();
+            // Clean up
+            document.body.removeChild(link);
+          })
+          .catch(error => {
+            console.error('Error fetching data:', error);
+          });
+    }
+
+    //Click event listener to the map
+    map.on('click', function (event) {
+      var coordinate = event.coordinate;
+      var x = coordinate[0]; // x-coordinate
+      var y = coordinate[1];
+      console.log('Coordinates (x, y):', x, y);
+
+      // Call the API with the extracted values
+      callApi(x, y, event);
+    });
+
+    // Function to call the API
+    function callApi(x, y, event) {
+      var apiUrl = `${baseUrl}/dynamic/raptor.cgi/pointvalue/${datasetPath}/${x}/${y}`;
+
+      // Make an API request (you can use fetch or any other method)
+      // For simplicity, I'll use console.log to display the constructed URL
+      console.log('API URL:', apiUrl);
+
+      fetch(apiUrl)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then(data => {
+          // Check if the API response contains the expected value
+          if (data && data.value !== 'undefined') {
+            console.log('Value: ', data.value);
+
+            var values = data.value.split(',');
+            var formattedValues = "R: " + values[0] + ", G: " + values[1] + ", B: " + values[2];
+            var redBox = document.getElementById('redBox');
+            var greenBox = document.getElementById('greenBox');
+            var blueBox = document.getElementById('blueBox');
+            var colorPreview = document.getElementById('colorPreview');
+            redBox.innerHTML = 'R :' + values[0];
+            greenBox.innerHTML = 'G :' + values[1];
+            blueBox.innerHTML = 'B :' + values[2];
+            colorPreview.style.backgroundColor = 'rgb(' + values[0] + ',' + values[1] + ',' + values[2] + ')';
+            overlay.setPosition(event.coordinate);
+            document.getElementById('rgbValues').style.display = 'block';
+          }else {
+            // If RGB values are undefined, show "undefined" in the color boxes and hide the color preview
+            var redBox = document.getElementById('redBox');
+            var greenBox = document.getElementById('greenBox');
+            var blueBox = document.getElementById('blueBox');
+            var colorPreview = document.getElementById('colorPreview');
+
+            redBox.innerHTML = 'R: N/A';
+            greenBox.innerHTML = 'G: N/A';
+            blueBox.innerHTML = 'B: N/A';
+            colorPreview.style.backgroundColor = 'transparent';
+            overlay.setPosition(event.coordinate);
+            document.getElementById('rgbValues').style.display = 'block';
+          }
+        })
+        .catch(error => {
+          console.error('API Error ', error);
+        })
+    }
+
+    // Update URL hash on map view change
+    map.on('moveend', () => {
+      const view = map.getView();
+      const center = ol.proj.toLonLat(view.getCenter());
+      const zoom = view.getZoom();
+      window.location.hash = `#${zoom.toFixed(2)}/${center[0].toFixed(6)}/${center[1].toFixed(6)}`;
+    });
+
+    // Listen for hash changes and update map view accordingly
+    window.addEventListener('hashchange', updateMapView);
+
+    function closePopup() {
+        document.getElementById('rgbValues').style.display = 'none';
+    }
+
+    document.getElementById('close-btn').addEventListener('click', function() {
+        closePopup();
+    });
+
+    // Initial map setup
+    updateMapView();
+  </script>
+</body>
+</html>
